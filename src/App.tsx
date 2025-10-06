@@ -1,5 +1,5 @@
 import { Container, Heading, VStack } from '@chakra-ui/react';
-import Editor from './components/Editor';
+import { Editor } from '../lib';
 
 function App() {
   return (

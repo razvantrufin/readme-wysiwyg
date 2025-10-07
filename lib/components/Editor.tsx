@@ -1,128 +1,115 @@
-import { Box, Button, ButtonGroup, VStack } from '@chakra-ui/react';
-import { useRef, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
+import { createEditor, Descendant, Editor as SlateEditor, Transforms, Element as SlateElement } from 'slate';
+import { Slate, Editable, withReact, ReactEditor } from 'slate-react';
+import { Box, VStack } from '@chakra-ui/react';
+import { CustomElement, CustomText } from '../custom-types';
+import Toolbar from './Toolbar';
+import CustomEditor from '../editor';
 
-type BlockStyle = 'h1' | 'h2' | 'h3' | 'blockquote' | 'ul' | 'ol';
-type InlineStyle = 'strong' | 'em';
+const initialValue: Descendant[] = [
+  {
+    type: 'paragraph',
+    children: [{ text: 'Start typing here...' }],
+  },
+];
 
-const Editor = () => {
-  const editorRef = useRef<HTMLDivElement>(null);
+const Element = ({ attributes, children, element }: { attributes: any, children: any, element: CustomElement }) => {
+  switch (element.type) {
+    case 'h1':
+      return <h1 {...attributes}>{children}</h1>;
+    case 'h2':
+      return <h2 {...attributes}>{children}</h2>;
+    case 'h3':
+      return <h3 {...attributes}>{children}</h3>;
+    case 'blockquote':
+      return <blockquote {...attributes}>{children}</blockquote>;
+    case 'ul':
+      return <ul {...attributes}>{children}</ul>;
+    case 'ol':
+      return <ol {...attributes}>{children}</ol>;
+    case 'li':
+      return <li {...attributes}>{children}</li>;
+    case 'link':
+      return <a {...attributes} href={element.url}>{children}</a>;
+    case 'hr':
+        return <hr {...attributes} />;
+    case 'table':
+        return <table {...attributes}><tbody>{children}</tbody></table>;
+    case 'tr':
+        return <tr {...attributes}>{children}</tr>;
+    case 'td':
+        return <td {...attributes}>{children}</td>;
+    default:
+      return <p {...attributes}>{children}</p>;
+  }
+};
 
-  const applyInlineStyle = useCallback((style: InlineStyle) => {
-    const selection = window.getSelection();
-    if (!selection?.rangeCount) return;
+const Leaf = ({ attributes, children, leaf }: { attributes: any, children: any, leaf: CustomText }) => {
+  if (leaf.bold) {
+    children = <strong>{children}</strong>;
+  }
+  if (leaf.italic) {
+    children = <em>{children}</em>;
+  }
+  if (leaf.underline) {
+    children = <u>{children}</u>;
+  }
+  if (leaf.strikethrough) {
+    children = <s>{children}</s>;
+  }
+  return <span {...attributes}>{children}</span>;
+};
 
-    const range = selection.getRangeAt(0);
-    if (range.collapsed) return;
+const withVoids = (editor: ReactEditor) => {
+    const { isVoid } = editor;
+    editor.isVoid = (element: SlateElement) => {
+        return element.type === 'hr' ? true : isVoid(element);
+    };
+    return editor;
+};
 
-    const element = document.createElement(style);
-    element.appendChild(range.extractContents());
-    range.insertNode(element);
+const SlateEditor = () => {
+  const editor = useMemo(() => withVoids(withReact(createEditor())), []);
+  const [value, setValue] = useState<Descendant[]>(initialValue);
 
-    selection.removeAllRanges();
-    range.selectNodeContents(element);
-    selection.addRange(range);
-  }, []);
-
-  const applyBlockStyle = useCallback((style: BlockStyle) => {
-    const selection = window.getSelection();
-    if (!selection?.rangeCount || !editorRef.current) return;
-
-    const range = selection.getRangeAt(0);
-    let blockEl = range.startContainer;
-
-    // Find the top-level block element within the editor.
-    while (blockEl.parentNode !== editorRef.current && blockEl.parentNode) {
-      blockEl = blockEl.parentNode;
-    }
-
-    if (!(blockEl instanceof HTMLElement)) return;
-
-    const listParent = blockEl.closest('ul, ol');
-
-    // Case 1: Toggling a list
-    if (style === 'ul' || style === 'ol') {
-      if (listParent) {
-        // Subcase 1a: Switching list type (e.g., UL to OL)
-        if (listParent.tagName.toLowerCase() !== style) {
-          const newList = document.createElement(style);
-          while (listParent.firstChild) {
-            newList.appendChild(listParent.firstChild);
-          }
-          listParent.replaceWith(newList);
-        } else {
-          // Subcase 1b: Toggling list off - CORRECTED LOGIC
-          const fragment = document.createDocumentFragment();
-          for (const li of Array.from(listParent.children)) {
-            const p = document.createElement('p');
-            while (li.firstChild) {
-              p.appendChild(li.firstChild);
-            }
-            if (p.innerHTML === '') {
-              p.innerHTML = '<br>';
-            }
-            fragment.appendChild(p);
-          }
-          listParent.replaceWith(fragment);
-        }
-      } else {
-        // Subcase 1c: Toggling list on
-        const list = document.createElement(style);
-        const listItem = document.createElement('li');
-        while (blockEl.firstChild) {
-          listItem.appendChild(blockEl.firstChild);
-        }
-        if (listItem.innerHTML === '') {
-            listItem.innerHTML = '<br>';
-        }
-        list.appendChild(listItem);
-        blockEl.replaceWith(list);
-      }
-    } else {
-      // Case 2: Toggling headings or blockquotes
-      const newTag = blockEl.tagName.toLowerCase() === style ? 'p' : style;
-      const newBlock = document.createElement(newTag);
-      while (blockEl.firstChild) {
-        newBlock.appendChild(blockEl.firstChild);
-      }
-      blockEl.replaceWith(newBlock);
-    }
-  }, []);
-
-  const handleMouseDown = (e: React.MouseEvent, style: InlineStyle | BlockStyle) => {
-    e.preventDefault();
-    editorRef.current?.focus();
-    if (style === 'strong' || style === 'em') {
-      applyInlineStyle(style);
-    } else {
-      applyBlockStyle(style);
-    }
-  };
+  const renderElement = useCallback((props: any) => <Element {...props} />, []);
+  const renderLeaf = useCallback((props: any) => <Leaf {...props} />, []);
 
   return (
     <VStack spacing={4} align="stretch">
-      <ButtonGroup>
-        <Button onMouseDown={(e) => handleMouseDown(e, 'strong')}>Bold</Button>
-        <Button onMouseDown={(e) => handleMouseDown(e, 'em')}>Italic</Button>
-        <Button onMouseDown={(e) => handleMouseDown(e, 'h1')}>H1</Button>
-        <Button onMouseDown={(e) => handleMouseDown(e, 'h2')}>H2</Button>
-        <Button onMouseDown={(e) => handleMouseDown(e, 'h3')}>H3</Button>
-        <Button onMouseDown={(e) => handleMouseDown(e, 'ul')}>UL</Button>
-        <Button onMouseDown={(e) => handleMouseDown(e, 'ol')}>OL</Button>
-        <Button onMouseDown={(e) => handleMouseDown(e, 'blockquote')}>Quote</Button>
-      </ButtonGroup>
-      <Box
-        borderWidth="1px"
-        borderRadius="lg"
-        p={4}
-        contentEditable
-        suppressContentEditableWarning={true}
-        ref={editorRef}
-        minH="200px"
-      >
-        <p><br/></p>
-      </Box>
+      <Slate editor={editor} initialValue={value} onChange={setValue}>
+        <Toolbar />
+        <Box borderWidth="1px" borderRadius="lg" p={4}>
+          <Editable
+            renderElement={renderElement}
+            renderLeaf={renderLeaf}
+            onKeyDown={(event) => {
+              if (!event.ctrlKey) {
+                return;
+              }
+              switch (event.key) {
+                case 'b': {
+                  event.preventDefault();
+                  CustomEditor.toggleMark(editor, 'bold');
+                  break;
+                }
+                case 'i': {
+                  event.preventDefault();
+                  CustomEditor.toggleMark(editor, 'italic');
+                  break;
+                }
+                case 'u': {
+                    event.preventDefault();
+                    CustomEditor.toggleMark(editor, 'underline');
+                    break;
+                }
+              }
+            }}
+          />
+        </Box>
+      </Slate>
     </VStack>
   );
 };
 
-export default Editor;
+export default SlateEditor;
